@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hệ Thống Giám Sát & Điều Khiển Độ pH</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    :root {
+      --bg-dark: #0f172a;
+      --card-bg: rgba(30, 41, 59, 0.7);
+      --card-border: rgba(255, 255, 255, 0.1);
+      --accent-cyan: #06b6d4;
+      --accent-blue: #3b82f6;
+      --text-main: #f8fafc;
+      --text-sub: #94a3b8;
+      --status-on: #10b981;
+      --status-off: #ef4444;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', system-ui, sans-serif; }
+    body { background: #0b0f19; color: var(--text-main); min-height: 100vh; padding: 20px; }
+
+    .dashboard { max-width: 1000px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px; }
+
+    header {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 16px;
+      padding: 20px;
+      text-align: center;
+      backdrop-filter: blur(10px);
+    }
+    header h1 { font-size: 1.6rem; color: var(--accent-cyan); text-transform: uppercase; letter-spacing: 1px; }
+
+    .metrics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 15px; }
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 16px;
+      padding: 20px;
+      backdrop-filter: blur(10px);
+    }
+
+    .metric-card { text-align: center; position: relative; }
+    .metric-value { font-size: 2.8rem; font-weight: bold; margin: 10px 0; color: #fff; }
+    .metric-label { font-size: 0.85rem; color: var(--text-sub); text-transform: uppercase; }
+
+    .badge {
+      display: inline-block;
+      padding: 6px 16px;
+      border-radius: 20px;
+      font-weight: bold;
+      font-size: 0.9rem;
+    }
+    .badge-off { background: rgba(239, 68, 68, 0.2); color: var(--status-off); border: 1px solid var(--status-off); }
+    .badge-on { background: rgba(16, 185, 129, 0.2); color: var(--status-on); border: 1px solid var(--status-on); }
+
+    .chart-container { height: 300px; width: 100%; margin-top: 15px; }
+
+    .controls-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+    @media (max-width: 600px) { .controls-grid { grid-template-columns: 1fr; } }
+
+    .input-group { margin-bottom: 15px; }
+    .input-group label { display: block; font-size: 0.85rem; color: var(--text-sub); margin-bottom: 5px; }
+    .input-group input {
+      width: 100%;
+      padding: 10px;
+      border-radius: 8px;
+      border: 1px solid var(--card-border);
+      background: rgba(15, 23, 42, 0.6);
+      color: #fff;
+      font-size: 1rem;
+    }
+
+    .btn {
+      width: 100%;
+      padding: 12px;
+      border-radius: 8px;
+      border: none;
+      font-weight: bold;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn-primary { background: var(--accent-cyan); color: #000; }
+    .btn-primary:hover { opacity: 0.9; }
+    .btn-outline { background: transparent; border: 1px solid var(--accent-cyan); color: var(--accent-cyan); }
+    .btn-outline:hover { background: rgba(6, 182, 212, 0.1); }
+
+    .sim-panel {
+      background: rgba(51, 65, 85, 0.4);
+      border: 1px dashed var(--accent-blue);
+      border-radius: 12px;
+      padding: 15px;
+      margin-top: 10px;
+    }
+    .sim-btns { display: flex; gap: 10px; margin-top: 10px; }
+    .sim-btns .btn { font-size: 0.8rem; padding: 8px; }
+  </style>
+</head>
+<body>
+
+  <div class="dashboard">
+    <header>
+      <h1><i class="fa-solid fa-flask"></i> Trạm Giám Sát & Điều Khiển Độ pH</h1>
+      <p style="color: var(--text-sub); font-size: 0.85rem; margin-top: 5px;">Hệ thống IoT theo dõi chỉ số thời gian thực</p>
+    </header>
+
+    <div class="metrics-grid">
+      <div class="card metric-card">
+        <div class="metric-label">Độ pH Hiện Tại</div>
+        <div class="metric-value" id="phValue">7.00</div>
+        <div id="phStatus" style="color: var(--status-on); font-size: 0.9rem;">Môi trường Trung tính</div>
+      </div>
+
+      <div class="card metric-card">
+        <div class="metric-label">Điện Áp Cảm Biến (Vout)</div>
+        <div class="metric-value" id="voutValue" style="color: var(--accent-cyan);">2.500V</div>
+        <div style="color: var(--text-sub); font-size: 0.85rem;">ADC 12-Bit: <span id="adcValue">2048</span></div>
+      </div>
+
+      <div class="card metric-card">
+        <div class="metric-label">Trạng Thái Bơm Bơm Dung Dịch</div>
+        <div style="margin: 15px 0;">
+          <span class="badge badge-off" id="pumpBadge">ĐANG TẮT</span>
+        </div>
+        <div style="color: var(--text-sub); font-size: 0.85rem;">Chế độ: <span id="modeText">Tự động</span></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div style="display: flex; justify-content: space-between; align-items: center;">
+        <h3><i class="fa-solid fa-chart-line"></i> Đồ Thị Theo Dõi Thời Gian Thực</h3>
+        <span style="font-size: 0.8rem; color: var(--accent-cyan);">Cập nhật mỗi 2 giây</span>
+      </div>
+      <div class="chart-container">
+        <canvas id="phChart"></canvas>
+      </div>
+    </div>
+
+    <div class="controls-grid">
+      <div class="card">
+        <h3><i class="fa-solid fa-sliders"></i> Cài Đặt Ngưỡng Tự Động</h3>
+        <br>
+        <div class="input-group">
+          <label>Bật Bơm Khi pH < (Axit hóa)</label>
+          <input type="number" id="minPh" value="5.5" step="0.1">
+        </div>
+        <div class="input-group">
+          <label>Tắt Bơm Khi pH ≥ (Cân bằng)</label>
+          <input type="number" id="maxPh" value="6.5" step="0.1">
+        </div>
+        <button class="btn btn-primary" onclick="saveThresholds()">Lưu Cài Đặt</button>
+      </div>
+
+      <div class="card">
+        <h3><i class="fa-solid fa-gamepad"></i> Điều Khiển & Mô Phỏng</h3>
+        <br>
+        <button class="btn btn-outline" id="toggleModeBtn" onclick="toggleMode()">Chuyển Sang Thủ Công</button>
+        <button class="btn btn-primary" id="togglePumpBtn" onclick="togglePump()" style="margin-top: 10px; display: none;">Bật Bơm Thủ Công</button>
+
+        <div class="sim-panel">
+          <div style="font-size: 0.8rem; color: var(--text-sub);">Bộ Giả Lập Môi Trường (Demo):</div>
+          <div class="sim-btns">
+            <button class="btn btn-outline" onclick="simEnvironment('acid')">+ Axit</button>
+            <button class="btn btn-outline" onclick="simEnvironment('neutral')">Trung Tính</button>
+            <button class="btn btn-outline" onclick="simEnvironment('base')">+ Kiềm</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let currentPH = 7.00;
+    let isPumpOn = false;
+    let isAutoMode = true;
+    let minPH = 5.5;
+    let maxPH = 6.5;
+
+    const ctx = document.getElementById('phChart').getContext('2d');
+    const phChart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: [],
+        datasets: [{
+          label: 'Độ pH',
+          data: [],
+          borderColor: '#06b6d4',
+          backgroundColor: 'rgba(6, 182, 212, 0.1)',
+          fill: true,
+          tension: 0.3
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+          y: { min: 0, max: 14, grid: { color: 'rgba(255,255,255,0.05)' } },
+          x: { grid: { color: 'rgba(255,255,255,0.05)' } }
+        },
+        plugins: { legend: { display: false } }
+      }
+    });
+
+    function updateDashboard() {
+      document.getElementById('phValue').innerText = currentPH.toFixed(2);
+      
+      let vout = (currentPH / 14) * 5.0;
+      let adc = Math.round((vout / 5.0) * 4095);
+      document.getElementById('voutValue').innerText = vout.toFixed(3) + 'V';
+      document.getElementById('adcValue').innerText = adc;
+
+      let statusElem = document.getElementById('phStatus');
+      if (currentPH < 6.0) {
+        statusElem.innerText = 'Môi trường Axit';
+        statusElem.style.color = '#ef4444';
+      } else if (currentPH > 8.0) {
+        statusElem.innerText = 'Môi trường Kiềm';
+        statusElem.style.color = '#a855f7';
+      } else {
+        statusElem.innerText = 'Môi trường Trung tính';
+        statusElem.style.color = '#10b981';
+      }
+
+      if (isAutoMode) {
+        if (currentPH < minPH && !isPumpOn) {
+          isPumpOn = true;
+        } else if (currentPH >= maxPH && isPumpOn) {
+          isPumpOn = false;
+        }
+      }
+
+      let pumpBadge = document.getElementById('pumpBadge');
+      if (isPumpOn) {
+        pumpBadge.innerText = 'ĐANG BẬT';
+        pumpBadge.className = 'badge badge-on';
+      } else {
+        pumpBadge.innerText = 'ĐANG TẮT';
+        pumpBadge.className = 'badge badge-off';
+      }
+
+      let now = new Date();
+      let timeStr = now.getHours() + ':' + String(now.getMinutes()).padStart(2, '0') + ':' + String(now.getSeconds()).padStart(2, '0');
+      
+      phChart.data.labels.push(timeStr);
+      phChart.data.datasets[0].data.push(currentPH);
+      if (phChart.data.labels.length > 15) {
+        phChart.data.labels.shift();
+        phChart.data.datasets[0].data.shift();
+      }
+      phChart.update();
+    }
+
+    function saveThresholds() {
+      minPH = parseFloat(document.getElementById('minPh').value);
+      maxPH = parseFloat(document.getElementById('maxPh').value);
+      alert('Đã cập nhật ngưỡng tự động!');
+    }
+
+    function toggleMode() {
+      isAutoMode = !isAutoMode;
+      document.getElementById('modeText').innerText = isAutoMode ? 'Tự động' : 'Thủ công';
+      document.getElementById('toggleModeBtn').innerText = isAutoMode ? 'Chuyển Sang Thủ Công' : 'Chuyển Sang Tự Động';
+      document.getElementById('togglePumpBtn').style.display = isAutoMode ? 'none' : 'block';
+    }
+
+    function togglePump() {
+      if (!isAutoMode) {
+        isPumpOn = !isPumpOn;
+        document.getElementById('togglePumpBtn').innerText = isPumpOn ? 'Tắt Bơm Thủ Công' : 'Bật Bơm Thủ Công';
+      }
+    }
+
+    function simEnvironment(type) {
+      if (type === 'acid') currentPH = Math.max(1.0, currentPH - 1.5);
+      if (type === 'neutral') currentPH = 7.0;
+      if (type === 'base') currentPH = Math.min(14.0, currentPH + 1.5);
+      updateDashboard();
+    }
+
+    setInterval(() => {
+      if (isPumpOn) {
+        currentPH = Math.min(14.0, currentPH + 0.15);
+      } else {
+        currentPH += (Math.random() - 0.5) * 0.05;
+      }
+      updateDashboard();
+    }, 2000);
+
+    updateDashboard();
+  </script>
+</body>
+</html>
